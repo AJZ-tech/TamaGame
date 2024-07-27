@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "tamagame-57544",
+  "private_key_id": "b3176c3428fbb42bc706a11f4d48e03aab4a65b7",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDd4he/OJ9jwRsH\ntJ3NYVuYYzxAK4a95rUy+FYAHjval+NGkpMx7HS5Fx9Usri8Y09SwCGjymdEmszI\np5baoq9bytRFIQseUtFBsisq3Id9BO2JhokFC+baxNHPRxlVQwdr+P6Qa55B0v8e\nu6n0Zb3+7ogee7F+mE6Zbntm7EKYE6KmLsj9eWOLMDh51zigDANASOOq+m4UyTe9\ngHUV9b5w17fzRj+96XtSyk65CDlu4Og6ZGpnysmgP1fbecyoTL2XMsX41vFCb7w0\nbRhVPq0+4uzir956ytFboJ/TBBkshdEqrVz8dK5wm4VYr5VFPMDf68gDkBktFPvm\nSdnOryJvAgMBAAECggEAZgfYRKnsfYoofFgdcnqRDJehdp6tVLj43OneXiqI+oF6\n1RKE1mG14QEVerS+h36hVNud/HwQFbebcK/ECmDiA3NXPjyuKLELocqk2A5VzXMN\nKf7wFh59d18nXcoDh7YNfSSgJtgeC4XTpBXG1uhMQKT+egoGOkEeb6ai31bIXrZZ\nlLq60W/cwv8zCsKuJtkvtW2VreKruNM8TOqZYvO9jwwCtoq/I9TtGtEYTSjg7bH9\nV8/nWWCN0g8lv1hnI/y6NDhafOTLXDniUXK0T0HGjbHzHEpFWuWWV6McEOuWkYb+\nQC2BzK+rTS2RILXnrd2Q6nFkNq81QP2wipn57R0KbQKBgQDvOrWv4MY4a10ypHqO\nukcFgYghWjVEOerLd1tMgA3/mItEA4eLPZ7TVCJLv1HDWgdUw7ZWDVYpOln8uVbA\n49ua9MExYlSNmF0M0EsWeNeeBl3xLoaWuYrVzsttO/sL8pxEUe7BvNkC/TprYpuM\n26k7UlB2cHRJ4auIH+JmXHhcnQKBgQDtcBVATh7S+eeFJu88ZHB39zTFH42iAg4f\nr0WeTwZIpcAdQIebZhBQts1lTbCMV1R6Da3rxZh32y+/89ozLwEtkVFiQTzAgtRp\nBLQRIFAGA0ZXQM8IE8sSkIdFGYIUan4szv6l5i9Q34n5qGk9Xa+U3Ek93/TZcsKA\ncT6oxVA/ewKBgQDU5lbTEyLVCxeB/kbjxnt2NvTDWdiVw0Vlle82ga/zi/pEqS9z\nh39Va0aqSrWlOPXVRed7ZZsMTdXPx9GhECdcG/3iyTOeX75PrP9mHF0nUVtBTLqS\nYMVhygvYRs0AsQTI+HGXEU3AD0RyVOtBzCsrk/HvtdyH88IH/vgpSJoFMQKBgQDN\naEF6OBsCeZ+I2X3tyRZjMkE8p2dn2E9PqdmYctUE1B+3LrQiA9Hpgbt/AA7T2lkC\nngLwDSkxxzUv4k3KKcfjG+xEDBv6jzQjBiahCkswaHTZ1v9EBZuQm+fqJ38ZGme9\na/VwoAoe9MPwb3lb1Uioh0n1dWHlHBqX82A5sTkTMQKBgExgiAsoPacT5Jq8xkSF\n0nwE6bKPWBpngwk739vzLAtnqAN3+4HGP8mfrM+HuFfdZR0r2If90EkmIomoEW2C\nIl1oBYEBzatcIHOjNlViIumpaoG5q60g8I3RK1afKcftPXC/LBMzwDEprUFjkyNI\nDH/dPVR1C5RhIifhjwvCLbqs\n-----END PRIVATE KEY-----\n",
+  "client_email": "firebase-adminsdk-pups3@tamagame-57544.iam.gserviceaccount.com",
+  "client_id": "116175573147589188846",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-pups3%40tamagame-57544.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
