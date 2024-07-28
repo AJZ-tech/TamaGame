@@ -179,16 +179,6 @@ async function getFromServerState(resource) {
 	}
 }
 
-async function getFromPlayers(uuid) {
-	try {
-		const data = await getFromDB('players', uuid);
-		return data ? new Map(data[uuid]) : new Map();
-	} catch (error) {
-		console.error('Error getting match results:', error);
-		return new Map();
-	}
-}
-
 // example: /getMatchQueryCounts or /getMatchQueryCounts?matchID=matchID
 async function getMatchQueryCounts() {
 	try {
@@ -290,6 +280,15 @@ app.post('/sendData', async (req, res) => {
 	}
 });
 
+async function queuePlayer(uuid, username) {
+	const playerQueue = await getPlayerQueue();
+
+	console.log(playerQueue)
+	playerQueue.push({ uuid, username });
+
+	await updatePlayerQueue(playerQueue);
+}
+
 // example: /connect?username=player1 or /connect?username=player1&uuid=uuid
 app.post('/connect', async (req, res) => {
 	const { username } = req.body;
@@ -308,28 +307,28 @@ app.post('/connect', async (req, res) => {
 		console.log({ status: 'Waiting for match with existing uuid', uuid });
 	}
 
-	const playerQueue = await getPlayerQueue();
-
-	if (!playerQueue.find(item => item.uuid === uuid)) {
-		playerQueue.push({ uuid, username });
-		await updatePlayerQueue(playerQueue);
-	}
-
 	try {
-		const playerSnapshot = await getPlayerData(uuid);
+		let playerData = await getPlayerData(uuid);
 
-		if (!playerSnapshot) {
-			const playerData = {
-				health: 100,
+		if (playerData) {
+			if (playerData.matchStatus === 'offline') {
+				playerData.matchStatus = 'online'
+				await queuePlayer(uuid, username)
+			}
+			console.log(`Player already exists with UUID: ${uuid}`);
+		} else {
+			playerData = {
 				userName: username,
 				uuid: uuid,
 				winLossTie: '0/0/0',
+				matchStatus: 'online',
 			};
-			await updatePlayerData(uuid, playerData);
+
+			await queuePlayer(uuid, username)
 			console.log(`New player added to the database with UUID: ${uuid}`);
-		} else {
-			console.log(`Player already exists with UUID: ${uuid}`);
 		}
+
+		await updatePlayerData(uuid, playerData)
 	} catch (error) {
 		console.error('Error adding/retrieving player data:', error);
 		return res.status(500).send({ error: 'Failed to store player data' });
@@ -344,6 +343,15 @@ async function tryPairPlayers() {
 		const player1 = playerQueue.shift();
 		const player2 = playerQueue.shift();
 		await updatePlayerQueue(playerQueue);
+
+
+		let playerData = await getPlayerData(player1.uuid);
+		playerData.matchStatus = 'playing'
+		await updatePlayerData(player1.uuid, playerData)
+
+		playerData = await getPlayerData(player2.uuid);
+		playerData.matchStatus = 'playing'
+		await updatePlayerData(player2.uuid, playerData)
 
 		const matchID = uuidv4();
 		const matchPair = {
