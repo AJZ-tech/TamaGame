@@ -151,17 +151,7 @@ async function getPlayerQueue() {
 async function getMatchPairs() {
 	try {
 		const data = await getFromDB('serverState', 'matchPairs');
-		if (data) {
-			console.log(data)
-
-			if (Array.isArray(data.matchPairs)) {
-				return new Map(data.matchPairs);
-			}
-
-			console.error('matchPairs is not in the expected array format.');
-		}
-
-		return new Map();
+		return data ? data.matchPairs : new Map();
 	} catch (error) {
 		console.error('Error getting match pairs:', error);
 		return new Map();
@@ -319,8 +309,11 @@ app.post('/connect', async (req, res) => {
 	}
 
 	const playerQueue = await getPlayerQueue();
-	playerQueue.push({ uuid, username });
-	await updatePlayerQueue(playerQueue);
+
+	if (!playerQueue.find(item => item.uuid === uuid)) {
+		playerQueue.push({ uuid, username });
+		await updatePlayerQueue(playerQueue);
+	}
 
 	try {
 		const playerSnapshot = await getPlayerData(uuid);
@@ -403,10 +396,6 @@ app.post('/move', async (req, res) => {
 
 	const matchPairs = await getMatchPairs();
 	const match = matchPairs.get(matchID);
-
-	if (!match) {
-		return res.status(404).send({ error: 'Match not found' });
-	}
 
 	const playerKey = match.player1.uuid === uuid ? 'player1' : 'player2';
 	match[playerKey].choice = choice;
