@@ -151,7 +151,7 @@ async function getPlayerQueue() {
 async function getMatchPairs() {
 	try {
 		const data = await getFromDB('serverState', 'matchPairs');
-		return data ? data.matchPairs : new Map();
+		return data ? new Map(Object.entries(data.matchPairs)) : new Map();
 	} catch (error) {
 		console.error('Error getting match pairs:', error);
 		return new Map();
@@ -373,15 +373,14 @@ app.get('/startgame', async (req, res) => {
 	console.log(`UUID: ${uuid} polled for match.`);
 
 	const matchPairs = await getMatchPairs();
-	const match = [...matchPairs.values()].find(
-		(m) => m.player1.uuid === uuid || m.player2.uuid === uuid
-	);
 
-	if (match) {
-		res.send({ status: 'Match found', matchID: match.matchID });
-	} else {
-		res.send({ status: 'No match found' });
+	for (const [matchID, players] of matchPairs) {
+		if (players.player1.uuid === uuid || players.player2.uuid === uuid) {
+			return res.send({ matchID: matchID });
+		}
 	}
+
+	res.send({ status: 'No match found' });
 });
 
 // example: /move?uuid=uuid&matchID=matchID&choice=choice
