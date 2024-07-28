@@ -34,8 +34,18 @@ async function sendToDB(collection, document, data) {
 }
 
 // Firestore Handler to get data from the database
-async function getFromDB(collection, document, fields = []) {
+async function getFromDB(collection, document, ...fields) {
 	try {
+		// Ensure fields is an array and validate that all elements are strings
+		fields = fields.flat(); // Flatten the array in case nested arrays are passed
+
+		for (const field of fields) {
+			if (typeof field !== 'string') {
+				console.error(`Invalid field type: ${field}. All fields must be strings.`);
+				throw new TypeError(`Invalid field type: ${field}. All fields must be strings.`);
+			}
+		}
+
 		const docRef = db.collection(collection).doc(document);
 		const docSnapshot = await docRef.get();
 		if (docSnapshot.exists) {
@@ -141,7 +151,17 @@ async function getPlayerQueue() {
 async function getMatchPairs() {
 	try {
 		const data = await getFromDB('serverState', 'matchPairs');
-		return data ? new Map(data.matchPairs) : new Map();
+		if (data) {
+			console.log(data)
+
+			if (Array.isArray(data.matchPairs)) {
+				return new Map(data.matchPairs);
+			}
+
+			console.error('matchPairs is not in the expected array format.');
+		}
+
+		return new Map();
 	} catch (error) {
 		console.error('Error getting match pairs:', error);
 		return new Map();
@@ -241,7 +261,7 @@ app.get('/testDbPush', (req, res) => {
 // if you dont specify fields, it will return all fields
 app.get('/testDbPull', async (req, res) => {
 	console.log('testDbPull successful');
-	const data = await getFromDB('test', 'test', 'testObj');
+	const data = await getFromDB('test', 'test', 'winLossTie', 'testObj');
 	res.send(data);
 });
 
