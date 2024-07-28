@@ -75,11 +75,19 @@ async function updatePlayerQueue(playerQueue) {
 	}
 }
 
+function mapToObject(map) {
+	const obj = {};
+	for (let [key, value] of map) {
+		obj[key] = value;
+	}
+	return obj;
+}
+
 // example: /updateMatchPairs or /updateMatchPairs?matchID=matchID
 async function updateMatchPairs(matchPairs) {
 	try {
 		await sendToDB('serverState', 'matchPairs', {
-			matchPairs: Array.from(matchPairs.entries()),
+			matchPairs: mapToObject(matchPairs.entries()),
 		});
 	} catch (error) {
 		console.error('Error updating match pairs:', error);
@@ -90,7 +98,7 @@ async function updateMatchPairs(matchPairs) {
 async function updateMatchResults(matchResults) {
 	try {
 		await sendToDB('serverState', 'matchResults', {
-			matchResults: Array.from(matchResults.entries()),
+			matchResults: mapToObjec(matchResults.entries()),
 		});
 	} catch (error) {
 		console.error('Error updating match results:', error);
@@ -101,7 +109,7 @@ async function updateMatchResults(matchResults) {
 async function updateMatchQueryCounts(matchQueryCounts) {
 	try {
 		await sendToDB('serverState', 'matchQueryCounts', {
-			matchQueryCounts: Array.from(matchQueryCounts.entries()),
+			matchQueryCounts: mapToObjec(matchQueryCounts.entries()),
 		});
 	} catch (error) {
 		console.error('Error updating match query counts:', error);
@@ -111,7 +119,7 @@ async function updateMatchQueryCounts(matchQueryCounts) {
 async function updateServerState(resource, value) {
 	try {
 		await sendToDB('serverState', resource, {
-			value: Array.from(value.entries()),
+			value: mapToObjec(value.entries()),
 		});
 	} catch (error) {
 		console.error('Error updating ', resource, ':', error);
