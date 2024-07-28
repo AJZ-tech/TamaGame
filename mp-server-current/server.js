@@ -328,12 +328,16 @@ async function processPlayer(doc, currentTime) {
 
 					// Find and remove the match where the player is involved
 					matchPairs = new Map([...matchPairs].filter(([matchID, players]) => {
-						return players.player1.uuid !== data.uuid && players.player2.uuid !== data.uuid;
+						const matchFound = players.player1.uuid === data.uuid || players.player2.uuid === data.uuid;
+						if (matchFound) {
+							console.log(`kicked ${players.player1.username} from playing match (${players.player1.uuid})`);
+							console.log(`kicked ${players.player2.username} from playing match (${players.player2.uuid})`);
+							console.log(`remove match ${matchID}`);
+						}
+						return !matchFound;
 					}));
 
 					await updateMatchPairs(matchPairs);
-
-					console.log(`kicked ${data.userName} from playing match (${data.uuid})`);
 					break;
 				case 'waiting':
 					console.log(`kicked ${data.userName} from waiting for match results (${data.uuid})`);
@@ -393,15 +397,31 @@ app.post('/connect', async (req, res) => {
 
 	try {
 		let playerData = await getPlayerData(uuid);
+		const matchPairs = await getMatchPairs();
 
 		if (playerData) {
 			console.log(`${playerData.userName} exists (${uuid})`);
 
 			if (playerData.matchStatus === 'offline') {
-				playerData.matchStatus = 'online'
-				playerData.timeStamp = getTimeStamp()
-				await queuePlayer(uuid, username)
+				let inMatch = false;
+
+				for (const [matchID, players] of matchPairs) {
+					if (players.player1.uuid === uuid || players.player2.uuid === uuid) {
+						console.log(`found existing match (${matchID})`)
+						playerData.matchStatus = 'playing';
+						inMatch = true;
+					}
+				}
+
+				if (!inMatch) {
+					playerData.matchStatus = 'online';
+					await queuePlayer(uuid, username);
+				}
+
+				playerData.timeStamp = getTimeStamp();
 			}
+
+
 		} else {
 			playerData = {
 				userName: username,
@@ -415,6 +435,8 @@ app.post('/connect', async (req, res) => {
 
 			await queuePlayer(uuid, username)
 		}
+
+		console.log(playerData)
 
 		await updatePlayerData(uuid, playerData);
 	} catch (error) {
@@ -443,8 +465,8 @@ async function tryPairPlayers() {
 
 		const matchID = uuidv4();
 		const matchPair = {
-			player1: { ...player1, choice: null },
-			player2: { ...player2, choice: null },
+			player1: { uuid: player1.uuid, choice: null },
+			player2: { uuid: player2.uuid, choice: null },
 		};
 
 		const matchPairs = await getMatchPairs();
@@ -474,16 +496,12 @@ app.get('/startgame', async (req, res) => {
 	let playerData = await getPlayerData(uuid);
 
 	if (playerData) {
-		if (playerData.matchStatus === 'offline') {
-			return res.send({ status: 'Not queued' });
-		} else {
-			playerData.timeStamp = getTimeStamp()
-			await updatePlayerData(uuid, playerData);
+		playerData.timeStamp = getTimeStamp()
+		await updatePlayerData(uuid, playerData);
 
-			for (const [matchID, players] of matchPairs) {
-				if (players.player1.uuid === uuid || players.player2.uuid === uuid) {
-					return res.send({ matchID: matchID });
-				}
+		for (const [matchID, players] of matchPairs) {
+			if (players.player1.uuid === uuid || players.player2.uuid === uuid) {
+				return res.send({ matchID: matchID });
 			}
 		}
 	}
@@ -508,38 +526,40 @@ app.get('/move', async (req, res) => {
 	playerData.timeStamp = getTimeStamp()
 	await updatePlayerData(uuid, playerData);
 
-	if (choice) {
-		const matchPairs = await getMatchPairs();
-		const match = matchPairs.get(matchID);
+	const matchPairs = await getMatchPairs();
+	const match = matchPairs.get(matchID);
 
-		const playerKey = match.player1.uuid === uuid ? 'player1' : 'player2';
+	if (match) {
+		if (choice) {
+			const playerKey = match.player1.uuid === uuid ? 'player1' : 'player2';
 
-		match[playerKey].choice = choice;
-		matchPairs.set(matchID, match);
-		await updateMatchPairs(matchPairs);
+			match[playerKey].choice = choice;
+			matchPairs.set(matchID, match);
+			await updateMatchPairs(matchPairs);
 
-		if (match.player1.choice && match.player2.choice) {
-			const matchResults = await getMatchResults();
-			const matchQueryCounts = await getMatchQueryCounts();
+			if (match.player1.choice && match.player2.choice) {
+				const matchResults = await getMatchResults();
+				const matchQueryCounts = await getMatchQueryCounts();
 
-			const result = determineMatchResult(
-				match.player1.choice,
-				match.player2.choice
-			);
-			matchResults.set(matchID, result);
-			matchQueryCounts.set(matchID, 0);
-			await updateMatchResults(matchResults);
-			await updateMatchQueryCounts(matchQueryCounts);
+				const result = determineMatchResult(
+					match.player1.choice,
+					match.player2.choice
+				);
+				matchResults.set(matchID, result);
+				matchQueryCounts.set(matchID, 0);
+				await updateMatchResults(matchResults);
+				await updateMatchQueryCounts(matchQueryCounts);
 
-			res.send({
-				status: 'Move recorded and match result determined',
-				result,
-			});
-		} else {
-			res.send({ status: 'Move recorded, waiting for the other player' });
+				res.send({
+					status: 'Move recorded and match result determined',
+					result,
+				});
+			} else {
+				res.send({ status: 'Move recorded, waiting for the other player' });
+			}
 		}
 	} else {
-
+		res.send({ status: 'Match DNE' });
 	}
 });
 
