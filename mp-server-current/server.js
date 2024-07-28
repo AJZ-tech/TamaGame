@@ -303,7 +303,7 @@ async function kickQueue(uuid) {
 	await updatePlayerQueue(playerQueue);
 }
 
-const watchdogTime = 5000;
+const watchdogTime = 2000;
 
 async function processPlayer(doc, currentTime) {
 	const data = doc.data();
@@ -325,10 +325,22 @@ async function processPlayer(doc, currentTime) {
 					break;
 				case 'playing':
 					let matchPairs = await getMatchPairs();
+					let otherPlayerUuid = null;
 
 					// Find and remove the match where the player is involved
 					matchPairs = new Map([...matchPairs].filter(([matchID, players]) => {
-						const matchFound = players.player1.uuid === data.uuid || players.player2.uuid === data.uuid;
+						let matchFound = false
+
+						if (players.player1.uuid === data.uuid) {
+							matchFound = true;
+							otherPlayerUuid = players.player2.uuid;
+						}
+
+						if (players.player2.uuid === data.uuid) {
+							matchFound = true;
+							otherPlayerUuid = players.player1.uuid;
+						}
+
 						if (matchFound) {
 							console.log(`kicked ${players.player1.username} from playing match (${players.player1.uuid})`);
 							console.log(`kicked ${players.player2.username} from playing match (${players.player2.uuid})`);
@@ -336,6 +348,10 @@ async function processPlayer(doc, currentTime) {
 						}
 						return !matchFound;
 					}));
+
+					let otherPlayerData = await getPlayerData(otherPlayerUuid);
+					otherPlayerData.matchStatus = 'offline';
+					await updatePlayerData(otherPlayerUuid, otherPlayerData);
 
 					await updateMatchPairs(matchPairs);
 					break;
@@ -403,17 +419,15 @@ app.post('/connect', async (req, res) => {
 			console.log(`${playerData.userName} exists (${uuid})`);
 
 			if (playerData.matchStatus === 'offline') {
-				let inMatch = false;
 
 				for (const [matchID, players] of matchPairs) {
 					if (players.player1.uuid === uuid || players.player2.uuid === uuid) {
 						console.log(`found existing match (${matchID})`)
 						playerData.matchStatus = 'playing';
-						inMatch = true;
 					}
 				}
 
-				if (!inMatch) {
+				if (playerData.matchStatus !== 'playing') {
 					playerData.matchStatus = 'online';
 					await queuePlayer(uuid, username);
 				}
@@ -496,14 +510,18 @@ app.get('/startgame', async (req, res) => {
 	let playerData = await getPlayerData(uuid);
 
 	if (playerData) {
+
 		playerData.timeStamp = getTimeStamp()
 		await updatePlayerData(uuid, playerData);
 
+
 		for (const [matchID, players] of matchPairs) {
 			if (players.player1.uuid === uuid || players.player2.uuid === uuid) {
-				return res.send({ matchID: matchID });
+				res.send({ matchID: matchID });
+				break;
 			}
 		}
+		return;
 	}
 
 	res.send({ status: 'No match found' });
