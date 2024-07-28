@@ -324,6 +324,15 @@ async function processPlayer(doc, currentTime) {
 					console.log(`kicked ${data.userName} from playing queue (${data.uuid})`);
 					break;
 				case 'playing':
+					let matchPairs = await getMatchPairs();
+
+					// Find and remove the match where the player is involved
+					matchPairs = new Map([...matchPairs].filter(([matchID, players]) => {
+						return players.player1.uuid !== data.uuid && players.player2.uuid !== data.uuid;
+					}));
+
+					await updateMatchPairs(matchPairs);
+
 					console.log(`kicked ${data.userName} from playing match (${data.uuid})`);
 					break;
 				case 'waiting':
@@ -470,12 +479,12 @@ app.get('/startgame', async (req, res) => {
 		} else {
 			playerData.timeStamp = getTimeStamp()
 			await updatePlayerData(uuid, playerData);
-		}
-	}
 
-	for (const [matchID, players] of matchPairs) {
-		if (players.player1.uuid === uuid || players.player2.uuid === uuid) {
-			return res.send({ matchID: matchID });
+			for (const [matchID, players] of matchPairs) {
+				if (players.player1.uuid === uuid || players.player2.uuid === uuid) {
+					return res.send({ matchID: matchID });
+				}
+			}
 		}
 	}
 
@@ -483,9 +492,11 @@ app.get('/startgame', async (req, res) => {
 });
 
 // example: /move?uuid=uuid&matchID=matchID&choice=choice
-app.post('/move', async (req, res) => {
+app.get('/move', async (req, res) => {
 	console.log('-- move invoked -----------------------------------------------------------------------');
-	const { uuid, matchID, choice } = req.body;
+	const { uuid, matchID, choice } = req.query;
+
+	console.log(`${uuid}, ${matchID}, ${choice}`)
 
 	if (!uuid || !matchID) {
 		return res
@@ -493,16 +504,16 @@ app.post('/move', async (req, res) => {
 			.send({ error: 'UUID and matchID are required' });
 	}
 
-	const matchPairs = await getMatchPairs();
-	const match = matchPairs.get(matchID);
-
-	const playerKey = match.player1.uuid === uuid ? 'player1' : 'player2';
-
 	let playerData = await getPlayerData(uuid);
 	playerData.timeStamp = getTimeStamp()
-	await updatePlayerData(player1.uuid, playerData);
+	await updatePlayerData(uuid, playerData);
 
 	if (choice) {
+		const matchPairs = await getMatchPairs();
+		const match = matchPairs.get(matchID);
+
+		const playerKey = match.player1.uuid === uuid ? 'player1' : 'player2';
+
 		match[playerKey].choice = choice;
 		matchPairs.set(matchID, match);
 		await updateMatchPairs(matchPairs);
