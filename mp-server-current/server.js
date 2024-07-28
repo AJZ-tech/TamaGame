@@ -23,7 +23,7 @@ async function sendToDB(collection, document, data) {
 	try {
 		const docRef = db.collection(collection).doc(document);
 		await docRef.set(data, { merge: true });
-		console.log(`Data sent to ${collection}/${document}`);
+		//console.log(`Data sent to ${collection}/${document}`);
 	} catch (error) {
 		console.error(
 			`Error sending data to ${collection}/${document}:`,
@@ -50,7 +50,7 @@ async function getFromDB(collection, document, ...fields) {
 		const docSnapshot = await docRef.get();
 		if (docSnapshot.exists) {
 			const data = docSnapshot.data();
-			console.log(`Data retrieved from ${collection}/${document}`);
+			//console.log(`Data retrieved from ${collection}/${document}`);
 
 			if (fields.length > 0) {
 				let filteredData = {};
@@ -283,14 +283,89 @@ app.post('/sendData', async (req, res) => {
 async function queuePlayer(uuid, username) {
 	const playerQueue = await getPlayerQueue();
 
-	console.log(playerQueue)
+	console.log(playerQueue);
 	playerQueue.push({ uuid, username });
+
+	await updatePlayerQueue(playerQueue);
+
+	console.log('queued up ' + username + ' (' + uuid + ')')
+}
+
+function getTimeStamp() {
+	return new Date(Date.now()).toISOString();
+}
+
+async function kickQueue(uuid) {
+	let playerQueue = await getPlayerQueue();
+
+	console.log(playerQueue);
 
 	await updatePlayerQueue(playerQueue);
 }
 
+const watchdogTime = 5000;
+
+async function processPlayer(doc, currentTime) {
+	const data = doc.data();
+
+	if (data.matchStatus !== 'offline') {
+		const timeDifference = currentTime - new Date(data.timeStamp).getTime();
+
+		if (timeDifference > watchdogTime) {
+			switch (data.matchStatus) {
+				case 'online':
+					let playerQueue = await getPlayerQueue();
+
+					// Find and remove the player from the queue
+					playerQueue = playerQueue.filter(player => player.uuid !== data.uuid);
+
+					await updatePlayerQueue(playerQueue);
+
+					console.log(`kicked ${data.userName} from playing queue (${data.uuid})`);
+					break;
+				case 'playing':
+					console.log(`kicked ${data.userName} from playing match (${data.uuid})`);
+					break;
+				case 'waiting':
+					console.log(`kicked ${data.userName} from waiting for match results (${data.uuid})`);
+					break;
+			}
+
+			let playerData = await getPlayerData(data.uuid);
+			playerData.matchStatus = 'offline'; // Mark the player as offline
+			await updatePlayerData(data.uuid, playerData);
+		}
+	}
+}
+
+async function fetchAndProcessPlayers(currentTime) {
+	const docRef = db.collection('players');
+	const docSnapshot = await docRef.get();
+
+	if (!docSnapshot.empty) {
+		const promises = [];
+		docSnapshot.forEach(doc => {
+			promises.push(processPlayer(doc, currentTime));
+		});
+		await Promise.all(promises); // Ensure all player processing is complete
+	}
+}
+
+async function watchdog() {
+	const currentTime = Date.now();
+
+	await fetchAndProcessPlayers(currentTime);
+
+	setTimeout(() => {
+		watchdog();
+	}, watchdogTime);
+}
+
+watchdog();
+
 // example: /connect?username=player1 or /connect?username=player1&uuid=uuid
 app.post('/connect', async (req, res) => {
+	console.log('-- connect invoked --------------------------------------------------------------------');
 	const { username } = req.body;
 	let { uuid } = req.body;
 
@@ -311,24 +386,28 @@ app.post('/connect', async (req, res) => {
 		let playerData = await getPlayerData(uuid);
 
 		if (playerData) {
+			console.log(`${playerData.userName} exists (${uuid})`);
+
 			if (playerData.matchStatus === 'offline') {
 				playerData.matchStatus = 'online'
+				playerData.timeStamp = getTimeStamp()
 				await queuePlayer(uuid, username)
 			}
-			console.log(`Player already exists with UUID: ${uuid}`);
 		} else {
 			playerData = {
 				userName: username,
 				uuid: uuid,
 				winLossTie: '0/0/0',
 				matchStatus: 'online',
+				timeStamp: getTimeStamp()
 			};
 
+			console.log(`New player, ${username}, added to the database (${uuid})`);
+
 			await queuePlayer(uuid, username)
-			console.log(`New player added to the database with UUID: ${uuid}`);
 		}
 
-		await updatePlayerData(uuid, playerData)
+		await updatePlayerData(uuid, playerData);
 	} catch (error) {
 		console.error('Error adding/retrieving player data:', error);
 		return res.status(500).send({ error: 'Failed to store player data' });
@@ -346,12 +425,12 @@ async function tryPairPlayers() {
 
 
 		let playerData = await getPlayerData(player1.uuid);
-		playerData.matchStatus = 'playing'
-		await updatePlayerData(player1.uuid, playerData)
+		playerData.matchStatus = 'playing';
+		await updatePlayerData(player1.uuid, playerData);
 
 		playerData = await getPlayerData(player2.uuid);
-		playerData.matchStatus = 'playing'
-		await updatePlayerData(player2.uuid, playerData)
+		playerData.matchStatus = 'playing';
+		await updatePlayerData(player2.uuid, playerData);
 
 		const matchID = uuidv4();
 		const matchPair = {
@@ -363,7 +442,7 @@ async function tryPairPlayers() {
 		matchPairs.set(matchID, matchPair);
 		await updateMatchPairs(matchPairs);
 
-		console.log(`Match created: ${matchID}`);
+		console.log(`Match created (${matchID})`);
 
 		sendStartGameSignal(player1.uuid, player2.uuid, matchID);
 	}
@@ -377,10 +456,22 @@ function sendStartGameSignal(uuid1, uuid2, matchID) {
 
 // example: /startgame?uuid=uuid or /startgame?uuid=uuid&matchID=matchID
 app.get('/startgame', async (req, res) => {
+	console.log('-- startgame invoked ------------------------------------------------------------------');
 	const { uuid } = req.query;
 	console.log(`UUID: ${uuid} polled for match.`);
 
 	const matchPairs = await getMatchPairs();
+
+	let playerData = await getPlayerData(uuid);
+
+	if (playerData) {
+		if (playerData.matchStatus === 'offline') {
+			return res.send({ status: 'Not queued' });
+		} else {
+			playerData.timeStamp = getTimeStamp()
+			await updatePlayerData(uuid, playerData);
+		}
+	}
 
 	for (const [matchID, players] of matchPairs) {
 		if (players.player1.uuid === uuid || players.player2.uuid === uuid) {
@@ -393,41 +484,51 @@ app.get('/startgame', async (req, res) => {
 
 // example: /move?uuid=uuid&matchID=matchID&choice=choice
 app.post('/move', async (req, res) => {
+	console.log('-- move invoked -----------------------------------------------------------------------');
 	const { uuid, matchID, choice } = req.body;
 
-	if (!uuid || !matchID || !choice) {
+	if (!uuid || !matchID) {
 		return res
 			.status(400)
-			.send({ error: 'UUID, matchID, and choice are required' });
+			.send({ error: 'UUID and matchID are required' });
 	}
 
 	const matchPairs = await getMatchPairs();
 	const match = matchPairs.get(matchID);
 
 	const playerKey = match.player1.uuid === uuid ? 'player1' : 'player2';
-	match[playerKey].choice = choice;
-	matchPairs.set(matchID, match);
-	await updateMatchPairs(matchPairs);
 
-	if (match.player1.choice && match.player2.choice) {
-		const matchResults = await getMatchResults();
-		const matchQueryCounts = await getMatchQueryCounts();
+	let playerData = await getPlayerData(uuid);
+	playerData.timeStamp = getTimeStamp()
+	await updatePlayerData(player1.uuid, playerData);
 
-		const result = determineMatchResult(
-			match.player1.choice,
-			match.player2.choice
-		);
-		matchResults.set(matchID, result);
-		matchQueryCounts.set(matchID, 0);
-		await updateMatchResults(matchResults);
-		await updateMatchQueryCounts(matchQueryCounts);
+	if (choice) {
+		match[playerKey].choice = choice;
+		matchPairs.set(matchID, match);
+		await updateMatchPairs(matchPairs);
 
-		res.send({
-			status: 'Move recorded and match result determined',
-			result,
-		});
+		if (match.player1.choice && match.player2.choice) {
+			const matchResults = await getMatchResults();
+			const matchQueryCounts = await getMatchQueryCounts();
+
+			const result = determineMatchResult(
+				match.player1.choice,
+				match.player2.choice
+			);
+			matchResults.set(matchID, result);
+			matchQueryCounts.set(matchID, 0);
+			await updateMatchResults(matchResults);
+			await updateMatchQueryCounts(matchQueryCounts);
+
+			res.send({
+				status: 'Move recorded and match result determined',
+				result,
+			});
+		} else {
+			res.send({ status: 'Move recorded, waiting for the other player' });
+		}
 	} else {
-		res.send({ status: 'Move recorded, waiting for the other player' });
+
 	}
 });
 
@@ -453,6 +554,7 @@ function determineMatchResult(choice1, choice2) {
 
 // example: /result?matchID=matchID
 app.post('/result', async (req, res) => {
+	console.log('-- result invoked ---------------------------------------------------------------------');
 	const { matchID } = req.body;
 
 	if (!matchID) {
