@@ -108,7 +108,7 @@ async function updateMatchPairs(matchPairs) {
 async function updateMatchResults(matchResults) {
 	try {
 		await sendToDB('serverState', 'matchResults', {
-			matchResults: mapToObjec(matchResults.entries()),
+			matchResults: mapToObject(matchResults.entries()),
 		});
 	} catch (error) {
 		console.error('Error updating match results:', error);
@@ -119,7 +119,7 @@ async function updateMatchResults(matchResults) {
 async function updateMatchQueryCounts(matchQueryCounts) {
 	try {
 		await sendToDB('serverState', 'matchQueryCounts', {
-			matchQueryCounts: mapToObjec(matchQueryCounts.entries()),
+			matchQueryCounts: mapToObject(matchQueryCounts.entries()),
 		});
 	} catch (error) {
 		console.error('Error updating match query counts:', error);
@@ -194,8 +194,17 @@ async function getMatchQueryCounts() {
 // example: /getPlayerData?uuid=uuid
 async function getPlayerData(uuid) {
 	try {
-		const playerData = await getFromDB('players', uuid);
-		return playerData;
+		if (!uuid) {
+			throw new Error('UUID is required');
+		}
+
+		const doc = await db.collection('players').doc(uuid).get();
+		if (!doc.exists) {
+			console.error(`No document found for UUID: ${uuid}`);
+			return null;
+		}
+
+		return doc.data();
 	} catch (error) {
 		console.error('Error getting player data:', error);
 		return null;
@@ -303,7 +312,7 @@ async function kickQueue(uuid) {
 	await updatePlayerQueue(playerQueue);
 }
 
-const watchdogTime = 2000;
+const watchdogTime = 6000;
 
 async function processPlayer(doc, currentTime) {
 	const data = doc.data();
@@ -325,35 +334,17 @@ async function processPlayer(doc, currentTime) {
 					break;
 				case 'playing':
 					let matchPairs = await getMatchPairs();
-					let otherPlayerUuid = null;
-
-					// Find and remove the match where the player is involved
 					matchPairs = new Map([...matchPairs].filter(([matchID, players]) => {
-						let matchFound = false
-
-						if (players.player1.uuid === data.uuid) {
-							matchFound = true;
-							otherPlayerUuid = players.player2.uuid;
-						}
-
-						if (players.player2.uuid === data.uuid) {
-							matchFound = true;
-							otherPlayerUuid = players.player1.uuid;
-						}
-
+						const matchFound = players.player1.uuid === data.uuid || players.player2.uuid === data.uuid;
 						if (matchFound) {
-							console.log(`kicked ${players.player1.username} from playing match (${players.player1.uuid})`);
-							console.log(`kicked ${players.player2.username} from playing match (${players.player2.uuid})`);
+							console.log(`kicked ${players.player1.userName} from playing match (${players.player1.uuid})`);
+							console.log(`kicked ${players.player2.userName} from playing match (${players.player2.uuid})`);
 							console.log(`remove match ${matchID}`);
 						}
-						return !matchFound;
+						return !matchFound; // Return true for matches that do not include the player
 					}));
-
-					let otherPlayerData = await getPlayerData(otherPlayerUuid);
-					otherPlayerData.matchStatus = 'offline';
-					await updatePlayerData(otherPlayerUuid, otherPlayerData);
-
 					await updateMatchPairs(matchPairs);
+					console.log(`kicked ${data.userName} from playing match (${data.uuid})`);
 					break;
 				case 'waiting':
 					console.log(`kicked ${data.userName} from waiting for match results (${data.uuid})`);
@@ -361,8 +352,10 @@ async function processPlayer(doc, currentTime) {
 			}
 
 			let playerData = await getPlayerData(data.uuid);
-			playerData.matchStatus = 'offline'; // Mark the player as offline
-			await updatePlayerData(data.uuid, playerData);
+			if (playerData) {
+				playerData.matchStatus = 'offline'; // Mark the player as offline
+				await updatePlayerData(data.uuid, playerData);
+			}
 		}
 	}
 }
@@ -479,8 +472,8 @@ async function tryPairPlayers() {
 
 		const matchID = uuidv4();
 		const matchPair = {
-			player1: { uuid: player1.uuid, choice: null },
-			player2: { uuid: player2.uuid, choice: null },
+			player1: { uuid: player1.uuid, choice: null, quaried: false },
+			player2: { uuid: player2.uuid, choice: null, quaried: false },
 		};
 
 		const matchPairs = await getMatchPairs();
