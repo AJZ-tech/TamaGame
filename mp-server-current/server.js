@@ -23,7 +23,7 @@ async function sendToDB(collection, document, data) {
 	try {
 		const docRef = db.collection(collection).doc(document);
 		await docRef.set(data, { merge: true });
-		console.log(`Data sent to ${collection}/${document}`);
+		//console.log(`Data sent to ${collection}/${document}`);
 	} catch (error) {
 		console.error(
 			`Error sending data to ${collection}/${document}:`,
@@ -34,13 +34,23 @@ async function sendToDB(collection, document, data) {
 }
 
 // Firestore Handler to get data from the database
-async function getFromDB(collection, document, fields = []) {
+async function getFromDB(collection, document, ...fields) {
 	try {
+		// Ensure fields is an array and validate that all elements are strings
+		fields = fields.flat(); // Flatten the array in case nested arrays are passed
+
+		for (const field of fields) {
+			if (typeof field !== 'string') {
+				console.error(`Invalid field type: ${field}. All fields must be strings.`);
+				throw new TypeError(`Invalid field type: ${field}. All fields must be strings.`);
+			}
+		}
+
 		const docRef = db.collection(collection).doc(document);
 		const docSnapshot = await docRef.get();
 		if (docSnapshot.exists) {
 			const data = docSnapshot.data();
-			console.log(`Data retrieved from ${collection}/${document}`);
+			//console.log(`Data retrieved from ${collection}/${document}`);
 
 			if (fields.length > 0) {
 				let filteredData = {};
@@ -75,11 +85,19 @@ async function updatePlayerQueue(playerQueue) {
 	}
 }
 
+function mapToObject(map) {
+	const obj = {};
+	for (let [key, value] of map) {
+		obj[key] = value;
+	}
+	return obj;
+}
+
 // example: /updateMatchPairs or /updateMatchPairs?matchID=matchID
 async function updateMatchPairs(matchPairs) {
 	try {
 		await sendToDB('serverState', 'matchPairs', {
-			matchPairs: Array.from(matchPairs.entries()),
+			matchPairs: mapToObject(matchPairs.entries()),
 		});
 	} catch (error) {
 		console.error('Error updating match pairs:', error);
@@ -90,7 +108,7 @@ async function updateMatchPairs(matchPairs) {
 async function updateMatchResults(matchResults) {
 	try {
 		await sendToDB('serverState', 'matchResults', {
-			matchResults: Array.from(matchResults.entries()),
+			matchResults: mapToObjec(matchResults.entries()),
 		});
 	} catch (error) {
 		console.error('Error updating match results:', error);
@@ -101,7 +119,7 @@ async function updateMatchResults(matchResults) {
 async function updateMatchQueryCounts(matchQueryCounts) {
 	try {
 		await sendToDB('serverState', 'matchQueryCounts', {
-			matchQueryCounts: Array.from(matchQueryCounts.entries()),
+			matchQueryCounts: mapToObjec(matchQueryCounts.entries()),
 		});
 	} catch (error) {
 		console.error('Error updating match query counts:', error);
@@ -111,7 +129,7 @@ async function updateMatchQueryCounts(matchQueryCounts) {
 async function updateServerState(resource, value) {
 	try {
 		await sendToDB('serverState', resource, {
-			value: Array.from(value.entries()),
+			value: mapToObjec(value.entries()),
 		});
 	} catch (error) {
 		console.error('Error updating ', resource, ':', error);
@@ -133,7 +151,7 @@ async function getPlayerQueue() {
 async function getMatchPairs() {
 	try {
 		const data = await getFromDB('serverState', 'matchPairs');
-		return data ? new Map(data.matchPairs) : new Map();
+		return data ? new Map(Object.entries(data.matchPairs)) : new Map();
 	} catch (error) {
 		console.error('Error getting match pairs:', error);
 		return new Map();
@@ -155,16 +173,6 @@ async function getFromServerState(resource) {
 	try {
 		const data = await getFromDB('serverState', resource);
 		return data ? new Map(data[resource]) : new Map();
-	} catch (error) {
-		console.error('Error getting match results:', error);
-		return new Map();
-	}
-}
-
-async function getFromPlayers(uuid) {
-	try {
-		const data = await getFromDB('players', uuid);
-		return data ? new Map(data[uuid]) : new Map();
 	} catch (error) {
 		console.error('Error getting match results:', error);
 		return new Map();
@@ -233,7 +241,7 @@ app.get('/testDbPush', (req, res) => {
 // if you dont specify fields, it will return all fields
 app.get('/testDbPull', async (req, res) => {
 	console.log('testDbPull successful');
-	const data = await getFromDB('test', 'test', 'testObj');
+	const data = await getFromDB('test', 'test', 'winLossTie', 'testObj');
 	res.send(data);
 });
 
@@ -272,8 +280,105 @@ app.post('/sendData', async (req, res) => {
 	}
 });
 
+async function queuePlayer(uuid, username) {
+	const playerQueue = await getPlayerQueue();
+
+	console.log(playerQueue);
+	playerQueue.push({ uuid, username });
+
+	await updatePlayerQueue(playerQueue);
+
+	console.log('queued up ' + username + ' (' + uuid + ')')
+}
+
+function getTimeStamp() {
+	return new Date(Date.now()).toISOString();
+}
+
+async function kickQueue(uuid) {
+	let playerQueue = await getPlayerQueue();
+
+	console.log(playerQueue);
+
+	await updatePlayerQueue(playerQueue);
+}
+
+const watchdogTime = 5000;
+
+async function processPlayer(doc, currentTime) {
+	const data = doc.data();
+
+	if (data.matchStatus !== 'offline') {
+		const timeDifference = currentTime - new Date(data.timeStamp).getTime();
+
+		if (timeDifference > watchdogTime) {
+			switch (data.matchStatus) {
+				case 'online':
+					let playerQueue = await getPlayerQueue();
+
+					// Find and remove the player from the queue
+					playerQueue = playerQueue.filter(player => player.uuid !== data.uuid);
+
+					await updatePlayerQueue(playerQueue);
+
+					console.log(`kicked ${data.userName} from playing queue (${data.uuid})`);
+					break;
+				case 'playing':
+					let matchPairs = await getMatchPairs();
+
+					// Find and remove the match where the player is involved
+					matchPairs = new Map([...matchPairs].filter(([matchID, players]) => {
+						const matchFound = players.player1.uuid === data.uuid || players.player2.uuid === data.uuid;
+						if (matchFound) {
+							console.log(`kicked ${players.player1.username} from playing match (${players.player1.uuid})`);
+							console.log(`kicked ${players.player2.username} from playing match (${players.player2.uuid})`);
+							console.log(`remove match ${matchID}`);
+						}
+						return !matchFound;
+					}));
+
+					await updateMatchPairs(matchPairs);
+					break;
+				case 'waiting':
+					console.log(`kicked ${data.userName} from waiting for match results (${data.uuid})`);
+					break;
+			}
+
+			let playerData = await getPlayerData(data.uuid);
+			playerData.matchStatus = 'offline'; // Mark the player as offline
+			await updatePlayerData(data.uuid, playerData);
+		}
+	}
+}
+
+async function fetchAndProcessPlayers(currentTime) {
+	const docRef = db.collection('players');
+	const docSnapshot = await docRef.get();
+
+	if (!docSnapshot.empty) {
+		const promises = [];
+		docSnapshot.forEach(doc => {
+			promises.push(processPlayer(doc, currentTime));
+		});
+		await Promise.all(promises); // Ensure all player processing is complete
+	}
+}
+
+async function watchdog() {
+	const currentTime = Date.now();
+
+	await fetchAndProcessPlayers(currentTime);
+
+	setTimeout(() => {
+		watchdog();
+	}, watchdogTime);
+}
+
+watchdog();
+
 // example: /connect?username=player1 or /connect?username=player1&uuid=uuid
 app.post('/connect', async (req, res) => {
+	console.log('-- connect invoked --------------------------------------------------------------------');
 	const { username } = req.body;
 	let { uuid } = req.body;
 
@@ -290,25 +395,50 @@ app.post('/connect', async (req, res) => {
 		console.log({ status: 'Waiting for match with existing uuid', uuid });
 	}
 
-	const playerQueue = await getPlayerQueue();
-	playerQueue.push({ uuid, username });
-	await updatePlayerQueue(playerQueue);
-
 	try {
-		const playerSnapshot = await getPlayerData(uuid);
+		let playerData = await getPlayerData(uuid);
+		const matchPairs = await getMatchPairs();
 
-		if (!playerSnapshot) {
-			const playerData = {
-				health: 100,
+		if (playerData) {
+			console.log(`${playerData.userName} exists (${uuid})`);
+
+			if (playerData.matchStatus === 'offline') {
+				let inMatch = false;
+
+				for (const [matchID, players] of matchPairs) {
+					if (players.player1.uuid === uuid || players.player2.uuid === uuid) {
+						console.log(`found existing match (${matchID})`)
+						playerData.matchStatus = 'playing';
+						inMatch = true;
+					}
+				}
+
+				if (!inMatch) {
+					playerData.matchStatus = 'online';
+					await queuePlayer(uuid, username);
+				}
+
+				playerData.timeStamp = getTimeStamp();
+			}
+
+
+		} else {
+			playerData = {
 				userName: username,
 				uuid: uuid,
 				winLossTie: '0/0/0',
+				matchStatus: 'online',
+				timeStamp: getTimeStamp()
 			};
-			await updatePlayerData(uuid, playerData);
-			console.log(`New player added to the database with UUID: ${uuid}`);
-		} else {
-			console.log(`Player already exists with UUID: ${uuid}`);
+
+			console.log(`New player, ${username}, added to the database (${uuid})`);
+
+			await queuePlayer(uuid, username)
 		}
+
+		console.log(playerData)
+
+		await updatePlayerData(uuid, playerData);
 	} catch (error) {
 		console.error('Error adding/retrieving player data:', error);
 		return res.status(500).send({ error: 'Failed to store player data' });
@@ -324,17 +454,26 @@ async function tryPairPlayers() {
 		const player2 = playerQueue.shift();
 		await updatePlayerQueue(playerQueue);
 
+
+		let playerData = await getPlayerData(player1.uuid);
+		playerData.matchStatus = 'playing';
+		await updatePlayerData(player1.uuid, playerData);
+
+		playerData = await getPlayerData(player2.uuid);
+		playerData.matchStatus = 'playing';
+		await updatePlayerData(player2.uuid, playerData);
+
 		const matchID = uuidv4();
 		const matchPair = {
-			player1: { ...player1, choice: null },
-			player2: { ...player2, choice: null },
+			player1: { uuid: player1.uuid, choice: null },
+			player2: { uuid: player2.uuid, choice: null },
 		};
 
 		const matchPairs = await getMatchPairs();
 		matchPairs.set(matchID, matchPair);
 		await updateMatchPairs(matchPairs);
 
-		console.log(`Match created: ${matchID}`);
+		console.log(`Match created (${matchID})`);
 
 		sendStartGameSignal(player1.uuid, player2.uuid, matchID);
 	}
@@ -348,62 +487,79 @@ function sendStartGameSignal(uuid1, uuid2, matchID) {
 
 // example: /startgame?uuid=uuid or /startgame?uuid=uuid&matchID=matchID
 app.get('/startgame', async (req, res) => {
+	console.log('-- startgame invoked ------------------------------------------------------------------');
 	const { uuid } = req.query;
 	console.log(`UUID: ${uuid} polled for match.`);
 
 	const matchPairs = await getMatchPairs();
-	const match = [...matchPairs.values()].find(
-		(m) => m.player1.uuid === uuid || m.player2.uuid === uuid
-	);
 
-	if (match) {
-		res.send({ status: 'Match found', matchID: match.matchID });
-	} else {
-		res.send({ status: 'No match found' });
+	let playerData = await getPlayerData(uuid);
+
+	if (playerData) {
+		playerData.timeStamp = getTimeStamp()
+		await updatePlayerData(uuid, playerData);
+
+		for (const [matchID, players] of matchPairs) {
+			if (players.player1.uuid === uuid || players.player2.uuid === uuid) {
+				return res.send({ matchID: matchID });
+			}
+		}
 	}
+
+	res.send({ status: 'No match found' });
 });
 
 // example: /move?uuid=uuid&matchID=matchID&choice=choice
-app.post('/move', async (req, res) => {
-	const { uuid, matchID, choice } = req.body;
+app.get('/move', async (req, res) => {
+	console.log('-- move invoked -----------------------------------------------------------------------');
+	const { uuid, matchID, choice } = req.query;
 
-	if (!uuid || !matchID || !choice) {
+	console.log(`${uuid}, ${matchID}, ${choice}`)
+
+	if (!uuid || !matchID) {
 		return res
 			.status(400)
-			.send({ error: 'UUID, matchID, and choice are required' });
+			.send({ error: 'UUID and matchID are required' });
 	}
+
+	let playerData = await getPlayerData(uuid);
+	playerData.timeStamp = getTimeStamp()
+	await updatePlayerData(uuid, playerData);
 
 	const matchPairs = await getMatchPairs();
 	const match = matchPairs.get(matchID);
 
-	if (!match) {
-		return res.status(404).send({ error: 'Match not found' });
-	}
+	if (match) {
+		if (choice) {
+			const playerKey = match.player1.uuid === uuid ? 'player1' : 'player2';
 
-	const playerKey = match.player1.uuid === uuid ? 'player1' : 'player2';
-	match[playerKey].choice = choice;
-	matchPairs.set(matchID, match);
-	await updateMatchPairs(matchPairs);
+			match[playerKey].choice = choice;
+			matchPairs.set(matchID, match);
+			await updateMatchPairs(matchPairs);
 
-	if (match.player1.choice && match.player2.choice) {
-		const matchResults = await getMatchResults();
-		const matchQueryCounts = await getMatchQueryCounts();
+			if (match.player1.choice && match.player2.choice) {
+				const matchResults = await getMatchResults();
+				const matchQueryCounts = await getMatchQueryCounts();
 
-		const result = determineMatchResult(
-			match.player1.choice,
-			match.player2.choice
-		);
-		matchResults.set(matchID, result);
-		matchQueryCounts.set(matchID, 0);
-		await updateMatchResults(matchResults);
-		await updateMatchQueryCounts(matchQueryCounts);
+				const result = determineMatchResult(
+					match.player1.choice,
+					match.player2.choice
+				);
+				matchResults.set(matchID, result);
+				matchQueryCounts.set(matchID, 0);
+				await updateMatchResults(matchResults);
+				await updateMatchQueryCounts(matchQueryCounts);
 
-		res.send({
-			status: 'Move recorded and match result determined',
-			result,
-		});
+				res.send({
+					status: 'Move recorded and match result determined',
+					result,
+				});
+			} else {
+				res.send({ status: 'Move recorded, waiting for the other player' });
+			}
+		}
 	} else {
-		res.send({ status: 'Move recorded, waiting for the other player' });
+		res.send({ status: 'Match DNE' });
 	}
 });
 
@@ -429,6 +585,7 @@ function determineMatchResult(choice1, choice2) {
 
 // example: /result?matchID=matchID
 app.post('/result', async (req, res) => {
+	console.log('-- result invoked ---------------------------------------------------------------------');
 	const { matchID } = req.body;
 
 	if (!matchID) {
